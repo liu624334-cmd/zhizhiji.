@@ -8,6 +8,14 @@ const State = {
   moments: [],
   emojis: [],
   currentCharacterId: null,
+  profile: {
+    name: 'AI 玩家',
+    wxId: 'ai_player_01',
+    avatar: null, // data URL or null
+    gender: '未设置', // 男 / 女 / 未设置
+    signature: '',
+    role: '' // 人设（玩家角色设定）
+  },
 
   save(){
     try{
@@ -18,7 +26,8 @@ const State = {
         worldBooks: this.worldBooks,
         messages: this.messages,
         moments: this.moments,
-        emojis: this.emojis
+        emojis: this.emojis,
+        profile: this.profile
       }));
     }catch(e){}
   },
@@ -34,6 +43,7 @@ const State = {
         this.messages = data.messages || {};
         this.moments = data.moments || [];
         this.emojis = data.emojis || [];
+        if(data.profile) Object.assign(this.profile, data.profile);
       }
     }catch(e){}
     this.initDefaults();
@@ -117,36 +127,71 @@ function updateTime(){
 function initLockScreen(){
   const screen = document.getElementById('lock-screen');
   const bar = document.getElementById('unlock-bar');
-  let startY = 0, dragging = false;
+  if(!screen || !bar) return;
+  let startY = 0, startX = 0, dragging = false, lastY = 0;
 
-  const onStart = (e)=>{dragging=true;startY=(e.touches?e.touches[0].clientY:e.clientY);};
-  const onMove = (e)=>{
-    if(!dragging) return;
-    const y = (e.touches?e.touches[0].clientY:e.clientY) - startY;
-    if(y < 0) screen.style.transform = `translateY(${y}px)`;
+  const getPoint = (e)=>{
+    if(e.touches && e.touches.length>0) return {x:e.touches[0].clientX, y:e.touches[0].clientY};
+    if(e.changedTouches && e.changedTouches.length>0) return {x:e.changedTouches[0].clientX, y:e.changedTouches[0].clientY};
+    return {x:e.clientX, y:e.clientY};
   };
-  const onEnd = ()=>{
+
+  const onStart = (e)=>{
+    if(screen.classList.contains('unlocking')) return;
+    dragging = true;
+    const p = getPoint(e);
+    startY = p.y;
+    startX = p.x;
+    lastY = startY;
+    if(e.type !== 'touchstart') e.preventDefault();
+  };
+  const onMove = (e)=>{
+    if(!dragging || screen.classList.contains('unlocking')) return;
+    const p = getPoint(e);
+    lastY = p.y;
+    const y = p.y - startY;
+    if(y < 0){
+      screen.style.transform = `translateY(${y}px)`;
+      screen.style.opacity = 1 - Math.min(Math.abs(y)/600, 0.7);
+      screen.style.transition = 'none';
+    }
+    if(e.type === 'touchmove' && e.cancelable) e.preventDefault();
+  };
+  const onEnd = (e)=>{
     if(!dragging) return;
     dragging = false;
-    const m = screen.style.transform.match(/-?\d+(\.\d+)?/);
-    const y = m ? parseFloat(m[0]) : 0;
-    if(y < -80) unlockPhone();
-    else screen.style.transform = '';
+    const y = lastY - startY;
+    const absY = Math.abs(y);
+    if(y < -80){
+      unlockPhone();
+    }else{
+      screen.style.transition = '';
+      screen.style.transform = '';
+      screen.style.opacity = '';
+    }
   };
+
+  // Mouse events
   bar.addEventListener('mousedown', onStart);
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onEnd);
-  bar.addEventListener('touchstart', onStart, {passive:true});
-  document.addEventListener('touchmove', onMove, {passive:true});
-  document.addEventListener('touchend', onEnd);
+  // Also allow dragging on whole lock screen
+  screen.addEventListener('mousedown', onStart);
 
-  screen.addEventListener('transitionend', ()=>{
+  // Touch events
+  bar.addEventListener('touchstart', onStart, {passive:false});
+  screen.addEventListener('touchstart', onStart, {passive:false});
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('touchend', onEnd, {passive:false});
+  document.addEventListener('touchcancel', onEnd, {passive:false});
+
+  screen.addEventListener('transitionend', (e)=>{
+    if(e.propertyName !== 'transform') return;
     if(screen.classList.contains('unlocking')){
       screen.style.transform = '';
-      setTimeout(()=>{
-        screen.style.visibility='hidden';
-        document.getElementById('home-screen').classList.add('active');
-      }, 500);
+      screen.style.opacity = '';
+      screen.style.visibility = 'hidden';
+      document.getElementById('home-screen').classList.add('active');
     }
   });
   renderLockNotifications();
@@ -154,7 +199,9 @@ function initLockScreen(){
 
 function unlockPhone(){
   const screen = document.getElementById('lock-screen');
-  if(!screen.classList.contains('unlocking')) screen.classList.add('unlocking');
+  if(!screen || screen.classList.contains('unlocking')) return;
+  screen.classList.add('unlocking');
+  screen.style.transition = '';
 }
 
 function renderLockNotifications(){
@@ -255,8 +302,9 @@ function closeModal(){
 function buildSettingsApp(){
   return `<div style="display:flex;flex-direction:column;height:100%;">
     <div class="app-header">
+      <div class="back-btn" onclick="closeApp('settings-app')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
       <div class="title">设置</div>
-      <div class="right-actions"><svg viewBox="0 0 24 24" onclick="closeApp('settings-app')" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+      <div class="right-actions"></div>
     </div>
     <div class="app-body" id="settings-body"></div>
   </div>`;
@@ -392,8 +440,9 @@ function saveApi(){
 function buildWorldBookApp(){
   return `<div style="display:flex;flex-direction:column;height:100%;position:relative;">
     <div class="app-header">
+      <div class="back-btn" onclick="closeApp('worldbook-app')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
       <div class="title">世界书</div>
-      <div class="right-actions"><svg viewBox="0 0 24 24" onclick="closeApp('worldbook-app')" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+      <div class="right-actions"></div>
     </div>
     <div class="app-body" id="wb-body"></div>
     <div class="wb-add-btn" onclick="showWorldBookModal()">
@@ -476,6 +525,12 @@ function saveWorldBook(){
 // ============ WECHAT APP ============
 function buildWeChatApp(){
   return `<div style="display:flex;flex-direction:column;height:100%;">
+    <!-- WeChat Top Header with back button -->
+    <div class="app-header" style="padding:10px 14px 8px;">
+      <div class="back-btn" onclick="closeApp('wechat-app')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+      <div class="title" id="wx-page-title">微信</div>
+      <div class="right-actions"></div>
+    </div>
     <div id="wx-screens" style="flex:1;overflow:hidden;position:relative;">
       <!-- Chat Tab -->
       <div class="wx-tab-content active" id="wx-tab-chat" style="position:absolute;inset:0;">
@@ -512,7 +567,15 @@ function buildWeChatApp(){
       </div>
       <!-- Profile Tab -->
       <div class="wx-tab-content" id="wx-tab-profile" style="position:absolute;inset:0;overflow-y:auto;background:var(--bg-warm);">
-        <div class="profile-hero"><div class="p-avatar">小</div><div class="p-info"><div class="p-name">AI 玩家</div><div class="p-id">微信号: ai_player_01</div></div></div>
+        <div class="profile-hero" id="profile-hero" onclick="showProfileEditModal()">
+          <div class="p-avatar" id="profile-avatar">小</div>
+          <div class="p-info">
+            <div class="p-name" id="profile-name">AI 玩家</div>
+            <div class="p-id" id="profile-wxid">微信号: ai_player_01</div>
+          </div>
+          <div class="d-arrow" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);"><svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div id="profile-info-list"></div>
         <div style="height:12px;"></div>
         <div class="discover-group"><div class="discover-item"><div class="d-icon" style="background:rgba(255,149,0,0.12);"><svg viewBox="0 0 24 24" stroke="#FF9500" fill="none"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><span class="d-label">支付</span><div class="d-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></div></div></div>
         <div style="height:12px;"></div>
@@ -555,11 +618,128 @@ function buildWeChatApp(){
 function renderWeChatApp(){
   renderChatList();
   renderContactsList();
+  renderProfileTab();
+}
+
+function renderProfileTab(){
+  const p = State.profile;
+  const nameEl = document.getElementById('profile-name');
+  const wxidEl = document.getElementById('profile-wxid');
+  const avatarEl = document.getElementById('profile-avatar');
+  if(nameEl) nameEl.textContent = p.name;
+  if(wxidEl) wxidEl.textContent = '微信号: ' + p.wxId;
+  if(avatarEl){
+    if(p.avatar){
+      avatarEl.innerHTML = `<img src="${p.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">`;
+    }else{
+      avatarEl.textContent = (p.name||'我')[0];
+    }
+  }
+  const list = document.getElementById('profile-info-list');
+  if(list){
+    list.innerHTML = `
+      <div class="discover-group" style="margin-top:12px;">
+        <div class="discover-item" onclick="showProfileEditModal()">
+          <span class="d-label">昵称</span>
+          <span class="d-arrow" style="color:var(--text-secondary);margin-right:0;gap:4px;">${escapeHtml(p.name)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="discover-item" onclick="showProfileEditModal()">
+          <span class="d-label">性别</span>
+          <span class="d-arrow" style="color:var(--text-secondary);margin-right:0;gap:4px;">${p.gender}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="discover-item" onclick="showProfileEditModal()">
+          <span class="d-label">个性签名</span>
+          <span class="d-arrow" style="color:var(--text-secondary);margin-right:0;gap:4px;max-width:140px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.signature||'未设置'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="discover-item" onclick="showProfileEditModal()">
+          <span class="d-label">人设</span>
+          <span class="d-arrow" style="color:var(--text-secondary);margin-right:0;gap:4px;max-width:140px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.role?'已设置':'未设置'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+      </div>`;
+  }
+}
+
+function showProfileEditModal(){
+  const p = State.profile;
+  const avatarPreview = p.avatar
+    ? `<img id="preview-avatar" src="${p.avatar}" style="width:84px;height:84px;border-radius:12px;object-fit:cover;cursor:pointer;" onclick="document.getElementById('profile-avatar-file').click()">`
+    : `<div id="preview-avatar" style="width:84px;height:84px;border-radius:12px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:500;cursor:pointer;" onclick="document.getElementById('profile-avatar-file').click()">${(p.name||'我')[0]}</div>`;
+
+  const modal = createModal({
+    title: '个人信息',
+    body: `
+      <div class="form-group" style="display:flex;align-items:center;gap:14px;">
+        <label style="min-width:60px;">头像</label>
+        <div style="position:relative;">
+          ${avatarPreview}
+          <div style="position:absolute;bottom:0;right:0;width:28px;height:28px;background:var(--wechat);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;" onclick="document.getElementById('profile-avatar-file').click()" title="更换头像">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <input type="file" id="profile-avatar-file" accept="image/*" style="display:none;" onchange="handleProfileAvatar(event)">
+        </div>
+      </div>
+      <div class="form-group"><label>昵称</label><input id="prof-name" placeholder="请输入昵称" value="${escapeHtml(p.name)}"></div>
+      <div class="form-group">
+        <label>性别</label>
+        <div style="display:flex;gap:10px;">
+          <label style="flex:1;padding:10px 12px;border:0.5px solid var(--divider);border-radius:8px;cursor:pointer;background:var(--bg-card);display:flex;align-items:center;gap:8px;"><input type="radio" name="prof-gender" value="男" ${p.gender==='男'?'checked':''}> 男</label>
+          <label style="flex:1;padding:10px 12px;border:0.5px solid var(--divider);border-radius:8px;cursor:pointer;background:var(--bg-card);display:flex;align-items:center;gap:8px;"><input type="radio" name="prof-gender" value="女" ${p.gender==='女'?'checked':''}> 女</label>
+          <label style="flex:1;padding:10px 12px;border:0.5px solid var(--divider);border-radius:8px;cursor:pointer;background:var(--bg-card);display:flex;align-items:center;gap:8px;"><input type="radio" name="prof-gender" value="未设置" ${p.gender!=='男'&&p.gender!=='女'?'checked':''}> 保密</label>
+        </div>
+      </div>
+      <div class="form-group"><label>个性签名</label><textarea id="prof-signature" placeholder="写一句话介绍自己..." rows="2">${escapeHtml(p.signature||'')}</textarea></div>
+      <div class="form-group"><label>人设（玩家角色设定）</label><textarea id="prof-role" placeholder="描述你自己的性格、身份、世界观等..." rows="3">${escapeHtml(p.role||'')}</textarea></div>`,
+    footer: `<button class="btn-primary" onclick="saveProfile()">保存</button>`
+  });
+  showModal(modal);
+}
+
+function handleProfileAvatar(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  if(file.size > 5*1024*1024){ showToast('图片大小不能超过5MB'); return; }
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    const dataUrl = ev.target.result;
+    State.profile.avatar = dataUrl;
+    const prev = document.getElementById('preview-avatar');
+    if(prev){
+      prev.outerHTML = `<img id="preview-avatar" src="${dataUrl}" style="width:84px;height:84px;border-radius:12px;object-fit:cover;cursor:pointer;" onclick="document.getElementById('profile-avatar-file').click()">`;
+    }
+    showToast('头像已更新');
+  };
+  reader.readAsDataURL(file);
+}
+
+function saveProfile(){
+  const name = document.getElementById('prof-name').value.trim();
+  const signature = document.getElementById('prof-signature').value.trim();
+  const role = document.getElementById('prof-role').value.trim();
+  const genderR = document.querySelector('input[name="prof-gender"]:checked');
+  const gender = genderR ? genderR.value : '未设置';
+  if(!name){ showToast('请填写昵称'); return; }
+  Object.assign(State.profile, {name, gender, signature, role});
+  State.save();
+  closeModal();
+  renderProfileTab();
+  // Also update moments/profile hero text
+  const heroAvatar = document.getElementById('profile-avatar');
+  if(heroAvatar){
+    if(State.profile.avatar){
+      heroAvatar.innerHTML = `<img src="${State.profile.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">`;
+    }else{
+      heroAvatar.innerHTML = (State.profile.name||'我')[0];
+    }
+  }
+  showToast('保存成功');
 }
 
 function switchWxTab(tab){
   document.querySelectorAll('.wx-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.wx-tab-content').forEach(c=>c.classList.toggle('active',c.id==='wx-tab-'+tab));
+  const titles = {chat:'微信',contacts:'通讯录',discover:'发现',profile:'我'};
+  const t = document.getElementById('wx-page-title');
+  if(t) t.textContent = titles[tab] || '微信';
 }
 
 function renderChatList(){
@@ -1024,11 +1204,21 @@ function openMoments(){
       </div>
     </div>
     <div class="moments-hero">
-      <div class="m-avatar">我</div>
+      <div class="m-avatar" id="m-hero-avatar"></div>
+      <span class="m-hero-name" style="position:absolute;right:96px;bottom:0;color:#fff;font-size:17px;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.2);">${State.profile.name||'我'}</span>
     </div>
     <div class="moments-list" id="moments-list"></div>
   `;
   document.getElementById('screen').appendChild(view);
+  // Update avatar in moments hero
+  const heroA = document.getElementById('m-hero-avatar');
+  if(heroA){
+    if(State.profile.avatar){
+      heroA.innerHTML = `<img src="${State.profile.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">`;
+    }else{
+      heroA.textContent = (State.profile.name||'我')[0];
+    }
+  }
   renderMoments();
 }
 
@@ -1064,9 +1254,18 @@ function renderMoments(){
 
 function renderMomentCard(m){
   const char = State.characters.find(c=>c.id===m.charId);
-  const charName = char?char.name:'我';
-  const charAvatarId = char?(char.avatar||'moon'):'moon';
-  const avatarSvg = AVATAR_ICONS[charAvatarId]||AVATAR_ICONS.moon;
+  const charName = char?char.name:State.profile.name||'我';
+  const isPlayer = !char;
+  const charAvatarId = char?(char.avatar||'moon'):null;
+  const avatarSvg = charAvatarId?(AVATAR_ICONS[charAvatarId]||AVATAR_ICONS.moon):null;
+  let avatarHtml;
+  if(isPlayer && State.profile.avatar){
+    avatarHtml = `<img src="${State.profile.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">`;
+  }else if(isPlayer){
+    avatarHtml = (State.profile.name||'我')[0];
+  }else{
+    avatarHtml = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">${avatarSvg}</svg>`;
+  }
 
   let imagesHtml = '';
   if(m.images && m.images.length>0){
@@ -1096,7 +1295,7 @@ function renderMomentCard(m){
   return `<div class="moment-card">
     <div class="moment-header">
       <div class="avatar" style="display:flex;align-items:center;justify-content:center;background:var(--accent-soft);">
-        <svg viewBox="0 0 24 24" width="20" height="20" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">${avatarSvg}</svg>
+        ${avatarHtml}
       </div>
       <div>
         <div class="m-name">${charName}</div>
@@ -1127,7 +1326,7 @@ function likeMoment(id){
   const m = State.moments.find(x=>x.id===id);
   if(!m) return;
   if(!m.likes) m.likes = [];
-  const me = '我';
+  const me = State.profile.name || '我';
   if(m.likes.includes(me)){
     m.likes = m.likes.filter(l=>l!==me);
   }else{
@@ -1154,7 +1353,7 @@ function submitMomentComment(id){
   const m = State.moments.find(x=>x.id===id);
   if(!m){closeModal();return;}
   if(!m.comments) m.comments = [];
-  m.comments.push({name:'我',text:text});
+  m.comments.push({name:State.profile.name||'我',text:text});
   State.save();
   closeModal();
   renderMoments();
@@ -1220,7 +1419,7 @@ function publishMoment(){
     charId: 'player',
     text,
     images: [...images],
-    likes: ['我'],
+    likes: [State.profile.name || '我'],
     comments: [],
     time: Date.now()
   };
@@ -1364,10 +1563,9 @@ document.addEventListener('DOMContentLoaded', init);
     'renderWorldBookApp','showWorldBookModal','saveWorldBook','toggleWorldBookGlobal',
     'deleteWorldBook','buildWeChatApp','buildSettingsApp','buildWorldBookApp',
     'renderMessage','renderAvatarHtml','escapeHtml','getCurrentCharAvatar','formatMTime',
-    'toggleFeaturePanel','switchFeatureTab','renderFeatureTab','renderChatMessages',
-    'renderMomentCard','toggleMomentActions','likeMoment','commentMoment',
-    'showPublishModal','publishMoment','generateAIComments','toggleWorldBookGlobal',
-    'deleteWorldBook'
+    'renderFeatureTab','renderMomentCard','generateAIComments',
+    'renderProfileTab','showProfileEditModal','handleProfileAvatar','saveProfile',
+    'submitMomentComment'
   ];
   fnNames.forEach(n=>{ if(typeof window[n]==='function') window[n]=window[n]; });
 })();

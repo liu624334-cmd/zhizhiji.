@@ -621,7 +621,12 @@ function renderChatMessages(){
   if(!charId) return;
   const container = document.getElementById('chat-messages');
   const msgs = State.getCharacterMessages(charId);
-  container.innerHTML = msgs.map(m=>renderMessage(m)).join('');
+  const api = State.getActiveApi();
+  let warningHtml = '';
+  if(!api || !api.url || !api.key || !api.model){
+    warningHtml = `<div style="text-align:center;padding:10px 12px;margin:8px 0;background:#FFF3CD;border-radius:8px;font-size:12px;color:#856404;border:0.5px solid #FFEAA7;">⚠️ 尚未配置API，AI将无法回复。请前往「设置」添加API配置。</div>`;
+  }
+  container.innerHTML = warningHtml + msgs.map(m=>renderMessage(m)).join('');
   container.scrollTop = container.scrollHeight;
 }
 
@@ -720,35 +725,10 @@ async function triggerAIResponse(){
   if(!charId) return;
   const api = State.getActiveApi();
   if(!api || !api.url || !api.key || !api.model){
-    simulateLocalResponse(charId);
+    showToast('⚠️ 请先在设置中配置API，AI才能回复');
     return;
   }
   await callAIAPI(charId);
-}
-
-function simulateLocalResponse(charId){
-  const ch = State.characters.find(c=>c.id===charId);
-  const msgs = State.getCharacterMessages(charId);
-  const responses = [
-    '嗯...我在听呢。你说的话让我想了很多。',
-    '这件事...确实有些复杂。不过我愿意和你一起探讨。',
-    '你说的很好，让我想到了许多过往的事。',
-    '在这个世界里，很多事情都有它的道理。',
-    '若你心中有惑，不妨慢慢道来，我会陪你理清思绪。',
-    '星辰流转，时光荏苒。能与你相遇，实属缘分。',
-    '你的话让我想起了曾经读过的一段文字...',
-    '或许这就是命运的安排吧。我们之间的对话，早已冥冥注定。',
-  ];
-  const resp = responses[Math.floor(Math.random()*responses.length)];
-  setTimeout(()=>{
-    msgs.push({id:now(),role:'assistant',content:resp,time:now()});
-    State.setCharacterMessages(charId, msgs);
-    const ch = State.characters.find(c=>c.id===charId);
-    if(ch) ch.unread = (ch.unread||0)+1;
-    State.save();
-    renderChatMessages();
-    renderChatList();
-  }, 800+Math.random()*600);
 }
 
 async function callAIAPI(charId){
@@ -777,9 +757,9 @@ async function callAIAPI(charId){
     msgs.push({id:now(),role:'assistant',content:reply,time:now()});
   }catch(e){
     msgs.pop();
-    const fallback = generateFallbackResponse(ch);
-    msgs.push({id:now(),role:'assistant',content:fallback,time:now()});
-    showToast('API请求失败，已使用本地回复');
+    showToast('⚠️ API请求失败：' + (e.message||'未知错误'));
+    renderChatMessages();
+    return;
   }
   const ch2 = State.characters.find(c=>c.id===charId);
   if(ch2) ch2.unread = (ch2.unread||0)+1;
@@ -798,17 +778,6 @@ function buildSystemPrompt(ch, wbs){
   }
   prompt += '\n请以该角色的身份和语气自然地回应对话，保持角色的一致性。回复使用简体中文。';
   return prompt;
-}
-
-function generateFallbackResponse(ch){
-  const responses = [
-    `${ch.name}在此，你想说些什么呢？`,
-    '嗯...我在认真听。请继续。',
-    '这件事...让我想想该怎么回答。',
-    '这是一个很有意思的话题。',
-    '或许我们可以从另一个角度来看待这件事。',
-  ];
-  return responses[Math.floor(Math.random()*responses.length)];
 }
 
 // ============ VOICE / EMOJI PANEL ============
@@ -992,7 +961,7 @@ function saveCharacter(){
   }else{
     const newChar = {id:'char_'+Date.now(),name,remark,role,avatar,worldBookIds:wbIds,createdAt:Date.now()};
     State.characters.push(newChar);
-    State.messages[newChar.id] = [{id:Date.now(),role:'assistant',content:`你好，我是${name}。很高兴认识你。`,time:Date.now()}];
+    State.messages[newChar.id] = [];
   }
   State.save();
   closeModal();
@@ -1171,11 +1140,23 @@ function likeMoment(id){
 function commentMoment(id){
   const m = State.moments.find(x=>x.id===id);
   if(!m) return;
-  const text = prompt('写下你的评论：');
-  if(!text || !text.trim()) return;
+  const modal = createModal({
+    title: '评论',
+    body: `<textarea id="comment-text" class="publish-textarea" placeholder="写下你的评论..." rows="2"></textarea>`,
+    footer: `<button class="btn-primary" onclick="submitMomentComment('${id}')">发送</button>`
+  });
+  showModal(modal);
+}
+
+function submitMomentComment(id){
+  const text = document.getElementById('comment-text').value.trim();
+  if(!text){closeModal();return;}
+  const m = State.moments.find(x=>x.id===id);
+  if(!m){closeModal();return;}
   if(!m.comments) m.comments = [];
-  m.comments.push({name:'我',text:text.trim()});
+  m.comments.push({name:'我',text:text});
   State.save();
+  closeModal();
   renderMoments();
 }
 
@@ -1254,25 +1235,44 @@ function publishMoment(){
   setTimeout(()=>renderMoments(), 500);
 }
 
-function generateAIComments(moment){
+async function generateAIComments(moment){
+  const api = State.getActiveApi();
+  if(!api || !api.url || !api.key || !api.model){
+    showToast('⚠️ 未配置API，AI好友无法评论');
+    return;
+  }
   const chars = State.characters.slice(0,3);
-  const templates = [
-    '这个想法很有意思，让我也想到了一些事情。',
-    '嗯...看了之后颇有感触。',
-    '这个画面感很强，仿佛身临其境。',
-    '确实是这样，生活中总有些美好的瞬间值得记录。',
-    '有趣！我也有类似的经历呢。',
-    '愿这份美好能持续下去。',
-    '很有温度的分享，谢谢。',
-  ];
+  if(chars.length===0) return;
+  const content = moment.text || '一条朋友圈';
   chars.forEach((ch,i)=>{
-    setTimeout(()=>{
-      const comment = {name:ch.name,text:templates[Math.floor(Math.random()*templates.length)]};
-      moment.comments.push(comment);
+    setTimeout(async ()=>{
+      const wbs = State.getWorldBooksForCharacter(ch.id);
+      let systemPrompt = `你是"${ch.name}"，正在刷微信朋友圈。`;
+      if(ch.role) systemPrompt += `\n你的角色设定：${ch.role}`;
+      if(wbs.length>0){
+        systemPrompt += '\n你必须遵守以下世界书：\n';
+        wbs.forEach((wb,idx)=>{systemPrompt += `${idx+1}. ${wb.title}：${wb.desc}\n`;});
+      }
+      systemPrompt += '\n请以该角色的口吻，为这条朋友圈写一条简短的评论（1-2句话）。直接输出评论内容，不要加引号或其他标记。';
+      const userPrompt = `朋友圈内容：「${content}」${moment.images && moment.images.length>0 ? '（附带'+moment.images.length+'张图片）' : ''}`;
+      try{
+        const resp = await fetch(`${api.url.replace(/\/$/,'')}/chat/completions`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${api.key}`},
+          body: JSON.stringify({model:api.model,messages:[{role:'system',content:systemPrompt},{role:'user',content:userPrompt}],stream:false})
+        });
+        if(!resp.ok) throw new Error('API错误');
+        const data = await resp.json();
+        let reply = data.choices?.[0]?.message?.content || '...';
+        reply = reply.replace(/^["""']|["""']$/g,'').trim();
+        moment.comments.push({name:ch.name,text:reply});
+      }catch(e){
+        moment.comments.push({name:ch.name,text:'...'});
+      }
       State.save();
       const list = document.getElementById('moments-list');
       if(list){renderMoments();}
-    }, 1000+i*1500);
+    }, 800+i*1200);
   });
 }
 
@@ -1348,3 +1348,26 @@ function init(){
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// Expose all functions to window for global access
+(function expose(){
+  const fnNames = [
+    'unlockPhone','openApp','closeApp','showToast','closeModal','showModal','createModal',
+    'switchWxTab','openChat','closeChatDetail','renderChatList','renderContactsList',
+    'toggleFeaturePanel','switchFeatureTab','sendChatMessage','handleInput','recordVoice',
+    'sendEmoji','importEmojis','showCharacterModal','showCharacterDetail','saveCharacter',
+    'toggleCharWb','selectCharAvatar','showAddCharacterModal','togglePanel','renderChatMessages',
+    'renderWeChatApp','renderMoments','openMoments','closeMoments','showPublishModal',
+    'toggleMomentActions','likeMoment','commentMoment','publishMoment','handlePublishImages',
+    'renderPublishImages','removePublishImage','callAIAPI','buildSystemPrompt',
+    'showApiModal','saveApiConfig','pullModels','selectActiveApi','renderSettingsApp',
+    'renderWorldBookApp','showWorldBookModal','saveWorldBook','toggleWorldBookGlobal',
+    'deleteWorldBook','buildWeChatApp','buildSettingsApp','buildWorldBookApp',
+    'renderMessage','renderAvatarHtml','escapeHtml','getCurrentCharAvatar','formatMTime',
+    'toggleFeaturePanel','switchFeatureTab','renderFeatureTab','renderChatMessages',
+    'renderMomentCard','toggleMomentActions','likeMoment','commentMoment',
+    'showPublishModal','publishMoment','generateAIComments','toggleWorldBookGlobal',
+    'deleteWorldBook'
+  ];
+  fnNames.forEach(n=>{ if(typeof window[n]==='function') window[n]=window[n]; });
+})();

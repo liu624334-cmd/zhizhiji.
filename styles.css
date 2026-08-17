@@ -130,7 +130,9 @@ html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,"P
 #wechat-app{background:var(--wechat-bg);}
 .wx-content{flex:1;overflow:hidden;display:flex;flex-direction:column;height:100%;}
 .wx-tab-content{display:none;height:100%;flex-direction:column;overflow:hidden;}
-.wx-tab-content.active{display:flex;}
+.wx-tab-content.active{display:flex;flex-direction:column;}
+#wx-screens{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
+.wx-tab-content{position:absolute;inset:0;}
 .wx-chat-item{display:flex;align-items:center;padding:14px 16px;gap:12px;cursor:pointer;background:var(--bg-card);border-bottom:0.5px solid var(--divider);transition:background .1s;}
 .wx-chat-item:active{background:#f5f2ee;}
 .wx-chat-item .avatar{width:50px;height:50px;border-radius:8px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;color:#fff;font-weight:500;}
@@ -154,7 +156,7 @@ html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,"P
 .wx-tab.active svg{stroke:var(--wechat);}
 .wx-tab.active span{color:var(--wechat);}
 
-#chat-detail{display:none;flex-direction:column;height:100%;}
+#chat-detail{display:none;flex-direction:column;position:absolute;inset:0;z-index:10;}
 #chat-detail.active{display:flex;}
 .chat-header{display:flex;align-items:center;padding:4px 12px;background:var(--bg-card);border-bottom:0.5px solid var(--divider);flex-shrink:0;height:50px;}
 .chat-header .back{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
